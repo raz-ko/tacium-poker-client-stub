@@ -1,24 +1,42 @@
 import json
+import time
 from threading import Thread
 
 import websocket
 import _thread
 
 
+class PrintingMode:
+    FullData = "full_data"
+    PlayerActions = "player_actions"
+
+
 class WebSocket:
 
+    printing_mode = PrintingMode.FullData
     stop = False
     counter = 0
+    actions = {1: "", 2: "", 3: ""}
+    next_seat = 0
 
     @classmethod
     def on_message(cls, ws, message):
         text = message.decode("utf-8")
-        prefix = cls.get_prefix(text)
-        print(f"{prefix.ljust(40, ' ')}{text}")
+        if cls.printing_mode == PrintingMode.FullData:
+            prefix = cls.get_prefix(text)
+            print(f"{prefix.ljust(40, ' ')}{text}")
+        else:
+            change = cls.update_player_action(text)
+            if change:
+                print(f" {cls.n(1)} {cls.actions[1].ljust(10)}| {cls.n(2)} {cls.actions[2].ljust(10)}| {cls.n(3)} {cls.actions[3]}")
         if 'over' in text.lower():
             cls.counter += 1
             if cls.counter >= 3:
                 cls.stop = True
+
+    @classmethod
+    def n(cls, seat):
+        return '*' if seat == cls.next_seat else ' '
 
     @classmethod
     def on_error(cls, ws, error):
@@ -75,12 +93,28 @@ class WebSocket:
             return ""
 
     @classmethod
-    def run(cls):
+    def update_player_action(cls, text: str) -> bool:
+        try:
+            obj = json.loads(text)
+            p = obj['data']
+            res = False
+            if 'actions' in p:
+                for action in p['actions']:
+                    cls.actions[action['seat']] = action['action']['type']
+                    res = True
+            if 'players_state' in p:
+                if 'next_player' in p['players_state']:
+                    cls.next_seat = p['players_state']['next_player']['seat']
+                    res = True
+            return res
+        except Exception as e:
+            return False
+
+    @classmethod
+    def run(cls, server, printing_mode):
         # websocket.enableTrace(True)
-        # url = "ws://echo.websocket.org/"
-        # url = "ws://localhost:5286/dev/ws/"
-        url = "ws://ec2-18-159-141-70.eu-central-1.compute.amazonaws.com/dev/ws"
-        ws = websocket.WebSocketApp(url,
+        cls.printing_mode = printing_mode
+        ws = websocket.WebSocketApp(server,
                                     on_open=cls.on_open,
                                     on_message=cls.on_message,
                                     on_error=cls.on_error,
@@ -125,11 +159,52 @@ class WebSocket:
                 continue
 
 
+servers = {
+    "local": "ws://localhost:5212/dev/ws/'",
+    "public": "ws://ec2-18-159-141-70.eu-central-1.compute.amazonaws.com/dev/ws"
+}
+
+
+def run():
+    print()
+    print("Please select the desired server:")
+    server_items = list(servers.items())
+    index = 1
+    for name, server in server_items:
+        print(f"{str(index).rjust(3)}. {name}  ({server})")
+        index += 1
+    selected_server = 0
+    i = input()
+    index = 1
+    for name, _ in server_items:
+        if i.strip().lower() == name.lower() or i.strip() == str(index):
+            selected_server = index
+            break
+        index += 1
+    if not selected_server:
+        print("Not a valid server")
+        exit()
+
+    server = server_items[selected_server-1][1]
+    print()
+    print(f"Connecting to websocket server on {server}")
+    print()
+    print()
+    print("Please select printing mode:")
+    print(f"  1. Full data")
+    print(f"  2. Player actions")
+    i = input()
+    printing_mode = ""
+    if i.strip() == "1":
+        printing_mode = PrintingMode.FullData
+    elif i.strip() == "2":
+        printing_mode = PrintingMode.PlayerActions
+    else:
+        print("Not a valid printing mode")
+        exit()
+
+    WebSocket.run(server, printing_mode)
+
+
 if __name__ == "__main__":
-    print()
-    print("Connecting to websocket server on ws://ec2-18-159-141-70.eu-central-1.compute.amazonaws.com")
-    print()
-    print()
-    import time
-    time.sleep(1)
-    WebSocket.run()
+    run()
