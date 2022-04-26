@@ -12,10 +12,16 @@ class PrintingMode:
     GameView = "game_view"
 
 
+class LoginMethod:
+    Token = "token"
+    Guest = "guest"
+    NoLogin = "no_login"
+
+
 class WebSocket:
 
     printing_mode = PrintingMode.FullData
-    login = False
+    login_method = LoginMethod.NoLogin
     stop = False
     counter = 0
     actions = {1: "", 2: "", 3: ""}
@@ -40,7 +46,7 @@ class WebSocket:
                 print(game_view_text)
         if 'over' in text.lower():
             cls.counter += 1
-            if cls.counter >= 3:
+            if cls.counter >= 30:
                 cls.stop = True
 
     @classmethod
@@ -59,8 +65,11 @@ class WebSocket:
 
     @classmethod
     def on_open(cls, ws):
-        if cls.login:
-            data = '{"msg": "login","data": {"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiIiwiVXNlcklkIjoiNjEwNzgwNDQiLCJBZGRyZXNzIjoiMHgwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3IiwianRpIjoiYjBiM2ZhNzctNmRlNS00NzAxLTkwMjgtNmMyZGVlZTcyOTIzIiwiUm9sZSI6IlVzZXIiLCJleHAiOjE2NDc4NDAyNDAsImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6NjE5NTUiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjQyMDAifQ.PbQbLxtdlJkPctPLBx-miY0yKu4Q2PI5B0I5ZAkH350"}}'.encode("utf-8")
+        if cls.login_method == LoginMethod.Token:
+            data = '{"msg": "login","data": {"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOYW1lIjoiIiwiVXNlcklkIjoiNjU5MjY5MzciLCJBZGRyZXNzIjoiMHhjZTZlNzEwMGIxYzU2NjJkZDc4YzRmNDZlOTdlYWViNWMwNWU4ODc5IiwianRpIjoiMDFkZjAzZWUtYzMyNS00NTUxLWE0ZTYtYzNhNGE0NmQ3MWI5IiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjpbIlVzZXIiLCJBZG1pbiJdLCJleHAiOjE2NTA4NjI4NTksImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6NjE5NTUiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjQyMDAifQ.aVhkn59eKY8jNaBZvhpO_RD6FX0XY_Z77o5bP04V3R0"}}'.encode("utf-8")
+            ws.send(data, websocket.ABNF.OPCODE_BINARY)
+        elif cls.login_method == LoginMethod.Guest:
+            data = '{"msg": "guest","data": {"daemon": true}}'.encode("utf-8")
             ws.send(data, websocket.ABNF.OPCODE_BINARY)
         def run(*args):
             # for i in range(3):
@@ -174,10 +183,10 @@ class WebSocket:
         return ' '*((l-len(s))//2) + s + ' '*((l-len(s))+1//2)
 
     @classmethod
-    def run(cls, server, printing_mode, login):
+    def run(cls, server, printing_mode, login_method):
         # websocket.enableTrace(True)
         cls.printing_mode = printing_mode
-        cls.login = login
+        cls.login_method = login_method
         ws = websocket.WebSocketApp(server,
                                     on_open=cls.on_open,
                                     on_message=cls.on_message,
@@ -186,7 +195,7 @@ class WebSocket:
 
         t = Thread(target=cls.get_commands, args=(ws,))
         t.start()
-        ws.run_forever()
+        ws.run_forever(ping_timeout=2)
 
     @classmethod
     def get_commands(cls, ws):
@@ -223,18 +232,54 @@ class WebSocket:
                 continue
 
 
+def input_or_preset(preset: list) -> str:
+    if not preset:
+        return input()
+    res = preset[0]
+    preset.pop(0)
+    print(f"\033[1;32m{res}\033[1;0m")
+    return res
+
+
+presets = {
+    "player": ["10", "1", "2"],
+    "table": ["9", "1", "2"]
+}
+
+
 servers = {
     "local dev": "ws://localhost:5212/dev/ws",
     "local game": "ws://localhost:5212/game/ws",
     "local watch": "ws://localhost:5212/watch/ws",
     "public": "ws://ec2-18-159-141-70.eu-central-1.compute.amazonaws.com/dev/ws",
     "public ssl": "wss://poker.tacium.com/dev/ws",
-    "new server": "wss://showcase.tacium.com/watch/ws",
-    "beta": "wss://beta1.tacium.com/game/ws"
+    "website": "wss://showcase.tacium.com/watch/ws",
+    "beta": "wss://beta1.tacium.com/game/ws",
+    "demo": "wss://demo.tacium.com/game/ws",
+    "table": "ws://localhost:5212/ws/table?id=1",
+    "player": "ws://localhost:5212/ws/player",
+    "error": "ws://localhost:5212/gggg/ws",
+    "dev player": "wss://poker.tacium.com/ws/player"
 }
 
 
 def run():
+    print()
+    print("Please select a preset: (Enter for no preset)")
+    preset_items = list(presets.items())
+    index = 1
+    for name, preset in preset_items:
+        print(f"{str(index).rjust(3)}. {name}")
+        index += 1
+    selected_preset = []
+    i = input()
+    index = 1
+    for name, preset in preset_items:
+        if i.strip().lower() == name.lower() or i.strip() == str(index):
+            selected_preset = preset
+            break
+        index += 1
+
     print()
     print("Please select the desired server:")
     server_items = list(servers.items())
@@ -243,7 +288,7 @@ def run():
         print(f"{str(index).rjust(3)}. {name}  ({server})")
         index += 1
     selected_server = 0
-    i = input()
+    i = input_or_preset(selected_preset)
     index = 1
     for name, _ in server_items:
         if i.strip().lower() == name.lower() or i.strip() == str(index):
@@ -263,7 +308,7 @@ def run():
     print(f"  1. Full data")
     print(f"  2. Player actions")
     print(f"  3. Game view")
-    i = input()
+    i = input_or_preset(selected_preset)
     printing_mode = ""
     if i.strip() == "1":
         printing_mode = PrintingMode.FullData
@@ -276,11 +321,19 @@ def run():
         exit()
 
     print()
-    print("Perform login [y/n]? (Enter for no)")
-    i = input()
-    login = i.strip().lower().startswith('y')
+    print("Perform select login method:? (Enter for no login)")
+    print(f"  1. Login with token")
+    print(f"  2. Play as a guest")
+    print(f"  3. No login")
+    i = input_or_preset(selected_preset)
+    if i.strip() == "1":
+        login_method = LoginMethod.Token
+    elif i.strip() == "2":
+        login_method = LoginMethod.Guest
+    else:
+        login_method = LoginMethod.NoLogin
 
-    WebSocket.run(server, printing_mode, login)
+    WebSocket.run(server, printing_mode, login_method)
 
 
 if __name__ == "__main__":
